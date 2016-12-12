@@ -1,0 +1,9 @@
+# pip
+Include
+Lib
+Scripts
+pip-selfcheck.json
+
+# py
+__pycache__
+*.pyc
