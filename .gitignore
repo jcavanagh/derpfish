@@ -1,9 +1,11 @@
 # pip
+bin
 Include
 Lib
 Scripts
 pip-selfcheck.json
 
 # py
+.Python
 __pycache__
 *.pyc
