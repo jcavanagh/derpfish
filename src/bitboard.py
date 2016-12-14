@@ -181,6 +181,50 @@ class Bitboard:
 				if(pos_opp & new_piece_pos):
 					break
 
+	def _create_moves_diagonal_right(self, piece_name, piece_pos, pos_us, pos_opp, file, rank, moves):
+		# Search up-right and down-left of piece
+		dist_up_right = min(8 - rank, 8 - file)
+		for i in range(1, dist_up_right):
+			new_piece_pos = piece_pos<<(7 * i)
+			if(pos_us & new_piece_pos):
+				break
+			else:
+				moves.append(self.create_move(piece_name, piece_pos, new_piece_pos))
+				if(pos_opp & new_piece_pos):
+					break
+
+		dist_down_left = min(rank, file)
+		for i in range(1, dist_down_left):
+			new_piece_pos = piece_pos>>(7 * i)
+			if(pos_us & new_piece_pos):
+				break
+			else:
+				moves.append(self.create_move(piece_name, piece_pos, new_piece_pos))
+				if(pos_opp & new_piece_pos):
+					break
+
+	def _create_moves_diagonal_left(self, piece_name, piece_pos, pos_us, pos_opp, file, rank, moves):
+		# Search up-left and down-right of piece
+		dist_up_left = min(8 - rank, file)
+		for i in range(1, dist_up_left):
+			new_piece_pos = piece_pos<<(9 * i)
+			if(pos_us & new_piece_pos):
+				break
+			else:
+				moves.append(self.create_move(piece_name, piece_pos, new_piece_pos))
+				if(pos_opp & new_piece_pos):
+					break
+
+		dist_down_right = min(rank, 8 - file)
+		for i in range(1, dist_down_right):
+			new_piece_pos = piece_pos>>(9 * i)
+			if(pos_us & new_piece_pos):
+				break
+			else:
+				moves.append(self.create_move(piece_name, piece_pos, new_piece_pos))
+				if(pos_opp & new_piece_pos):
+					break
+
 	def create_move_from_algebraic(self, notation):
 		# TODO: O-O, O-O-O
 		try:
@@ -313,15 +357,17 @@ class Bitboard:
 			return None
 
 	def _moves_bishop(self, bishops, moves):
-		pass
+		pos_us = self._pos_bb(self.player)
+		pos_opp = self._pos_bb(self.opponent)
+
+		for bishop in self._move_bb_gen(bishops):
+			rank = self._rank_index(bishop)
+			file = self._file_index(bishop)
+
+			self._create_moves_diagonal_right('bishop', bishop, pos_us, pos_opp, file, rank, moves)
+			self._create_moves_diagonal_left('bishop', bishop, pos_us, pos_opp, file, rank, moves)
 
 	def _moves_rook(self, rooks, moves):
-		def _rook_moves_vertical(rook, pos_us, pos_opp, rank, moves):			
-			self._create_moves_vertical('rook', rook, pos_us, pos_opp, rank, moves)
-
-		def _rook_moves_horizontal(rook, pos_us, pos_opp, file, moves):
-			self._create_moves_horizontal('rook', rook, pos_us, pos_opp, file, moves)
-
 		pos_us = self._pos_bb(self.player)
 		pos_opp = self._pos_bb(self.opponent)
 
@@ -329,8 +375,8 @@ class Bitboard:
 			rank = self._rank_index(rook)
 			file = self._file_index(rook)
 
-			_rook_moves_vertical(rook, pos_us, pos_opp, rank, moves)
-			_rook_moves_horizontal(rook, pos_us, pos_opp, file, moves)
+			self._create_moves_vertical('rook', rook, pos_us, pos_opp, rank, moves)
+			self._create_moves_horizontal('rook', rook, pos_us, pos_opp, file, moves)
 
 	def _moves_king(self, kings, moves):
 		def _king_move_left_down(king):
@@ -373,8 +419,17 @@ class Bitboard:
 			self._move_append_if('king', king, _king_move_down(king), moves)
 
 	def _moves_queen(self, queens, moves):
+		pos_us = self._pos_bb(self.player)
+		pos_opp = self._pos_bb(self.opponent)
+
 		for queen in self._move_bb_gen(queens):
-			pass
+			rank = self._rank_index(queen)
+			file = self._file_index(queen)
+
+			self._create_moves_vertical('queen', queen, pos_us, pos_opp, rank, moves)
+			self._create_moves_horizontal('queen', queen, pos_us, pos_opp, file, moves)
+			self._create_moves_diagonal_right('queen', queen, pos_us, pos_opp, file, rank, moves)
+			self._create_moves_diagonal_left('queen', queen, pos_us, pos_opp, file, rank, moves)
 
 	def is_capture(self, move):
 		for piece in BitboardFields:
