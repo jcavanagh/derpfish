@@ -23,21 +23,20 @@ class Engine:
 			self.think()
 
 	def move(self, move):
-		self.position.make_move(move, self.position.player)
-		formatted = self.position.algebraic_move(move)
-		self.output.send_move(formatted)
+		self.position.make_move(move)
+		formatted = self.position.as_algebraic_coords(move)
+		self.output.send('move ' + formatted)
 
 	def user_move(self, move_notation):
-		self.position.create_move_from_algebraic(move_notation)
-		self.position.make_move(move, self.position.opponent)
+		move = self.position.create_move_from_algebraic_coords(move_notation)
+		self.position.make_move(move)
 		self.think()
 
 	def think(self):
-		print('thinking')
 		# Random legal move in the position
 		moves = self.position.moves()
 
 		if(len(moves)):
-			return random.choice(moves)
+			self.move(random.choice(moves))
 		else:
 			self.output.send('resign')

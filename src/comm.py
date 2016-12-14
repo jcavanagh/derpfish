@@ -6,7 +6,7 @@ XBoardEvent = namedtuple('XBoardEvent', ['command', 'args'])
 class XBoard:
 	def __init__(self):
 		self.features = {
-			'myname': 'Derpfish',
+			'myname': '"Derpfish"',
 			'ping': '1',
 			'usermove': '1',
 			'variants': '"normal"'
@@ -19,6 +19,7 @@ class XBoard:
 
 	def _parse_line(self, line):
 		parts = line.split()
+		# if len(parts):
 		return XBoardEvent(
 			command=parts[0],
 			args=parts[1:]
@@ -32,24 +33,17 @@ class XBoard:
 
 		if evtsubs is not None:
 			for handler in evtsubs:
-				print('handling:', event)
 				handler(event)
 
 	def _on_protover(self, event):
-		for arg in event.args:
-			split_arg = arg.split('=')
-			feature_name = split_arg[0]
-			feature_value = split_arg[1]
-
-			feature_setting = self.features.get(feature_name)
-
-			if(feature_setting and feature_setting == feature_value):
-				self.send('accepted ' + feature_name)
-			else:
-				self.send('rejected ' + feature_name)
+		for feature_name in self.features:
+			self.send('feature ' + feature_name + '=' + self.features[feature_name])
 
 	def _on_ping(self, event):
-		self.send('pong ' + event.args[0])
+		if(len(event.args)):
+			self.send('pong ' + event.args[0])
+		else:
+			self.send('pong')
 
 	def send(self, data):
 		sys.stdout.write(data + '\n')
@@ -65,4 +59,6 @@ class XBoard:
 
 	def listen(self):
 		for line in sys.stdin:
-			self._fire(self._parse_line(line))
+			parsed = self._parse_line(line)
+			if(parsed):
+				self._fire(parsed)

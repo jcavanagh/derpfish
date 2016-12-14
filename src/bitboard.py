@@ -4,7 +4,6 @@ from gmpy2 import mpz, bit_scan1
 BitboardFields = ['pawn', 'knight', 'bishop', 'rook', 'king', 'queen']
 BitboardSymbols = ['', 'N', 'B', 'R', 'K', 'Q']
 BitboardFiles = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
-BitboardColor = namedtuple('BitboardColor', BitboardFields)
 
 Move = namedtuple('Move', [
 	'piece',
@@ -12,8 +11,8 @@ Move = namedtuple('Move', [
 	'end_pos',
 	'is_check',
 	'is_checkmate',
-	'is_capture',
-	'is_promotion'
+	'is_promotion',
+	'capture',
 ])
 
 MASK_RANK_1 = mpz(255)
@@ -40,7 +39,7 @@ class Bitboard:
 	def __init__(self, color, debug=False):
 		self.debug = debug
 		self.color = color
-		self.white = BitboardColor(
+		self.white = dict(
 			pawn = mpz(255<<8),
 			knight = mpz(66),
 			bishop = mpz(36),
@@ -49,7 +48,7 @@ class Bitboard:
 			queen = mpz(16)
 		)
 
-		self.black = BitboardColor(
+		self.black = dict(
 			pawn = mpz(255<<48),
 			knight = mpz(66<<56),
 			bishop = mpz(36<<56),
@@ -60,8 +59,7 @@ class Bitboard:
 
 		self.player = self.white if color == 'white' else self.black
 		self.opponent = self.black if color == 'white' else self.white
-		self.on_move = 'player' if color == 'white' else 'opponent'
-		self.off_move = 'opponent' if color == 'white' else 'player'
+		self.on_move = color == 'white'
 		self.history = []
 
 	def __repr__(self):
@@ -73,7 +71,7 @@ class Bitboard:
 		else:
 			all = mpz(0)
 			for item in board:
-				all = all ^ item
+				all = all ^ board[item]
 
 			return all
 
@@ -103,8 +101,8 @@ class Bitboard:
 		return hash.digits(10)
 
 	def bb_from_algebraic(self, file, rank):
-		file_index = 7 - BitboardFiles.index(file)
-		return mpz(1)<<((8 * rank) + file_index)
+		file_index = 7 - BitboardFiles.index(file.lower())
+		return mpz(1)<<((8 * (int(rank) - 1)) + file_index)
 
 	def _rank_index(self, pos):
 		rank = 0
@@ -136,10 +134,21 @@ class Bitboard:
 	def _rank_mask(self, rank):
 		return globals()['MASK_RANK_' + str(rank)]
 
-	def create_move(self, piece_name, initial, final, capture=False, promotion=False):
+	def _piece_at(self, pos, side):
+		found = None
+		for piece_name in side:
+			if(side[piece_name] & pos):
+				found = piece_name
+				break
+
+		return found
+
+	def create_move(self, piece_name, initial, final, is_capture=False, promotion=False):
+		side = self.player if self.on_move else self.opponent
 		check = self.is_check(final)
 		checkmate = self.is_checkmate(final) if check else False
-		return Move(piece_name, initial, final, check, checkmate, capture, promotion)
+		capture = self._piece_at(final, side) if is_capture else None
+		return Move(piece_name, initial, final, check, checkmate, promotion, capture)
 
 	def _create_moves_horizontal(self, piece_name, piece_pos, pos_us, pos_opp, file, moves):
 		# Search left and right of piece
@@ -225,70 +234,72 @@ class Bitboard:
 				if(pos_opp & new_piece_pos):
 					break
 
-	def create_move_from_algebraic(self, notation):
+	def create_move_from_algebraic_coords(self, notation):
 		# TODO: O-O, O-O-O
-		try:
-			sym_index = BitboardSymbols.index(notation[0])
-		except ValueError:
-			# Pawn
-			sym_index = 0
+		# try:
+		# 	sym_index = BitboardSymbols.index(notation[0])
+		# except ValueError:
+		# 	# Pawn
+		# 	sym_index = 0
 
-		piece = BitboardFields[sym_index]
-		is_capture = notation.index('x') != -1
-		is_promotion = notation.index('=') != -1
-		is_check = notation.index('+') != -1
-		is_checkmate = notation.index('#') != -1
+		# piece = BitboardFields[sym_index]
+		# is_capture = notation.find('x') != -1
+		# is_promotion = notation.find('=') != -1
+		# is_check = notation.find('+') != -1
+		# is_checkmate = notation.find('#') != -1
 
-		start_rank = None
-		start_file = None
-		end_rank = None
-		end_file = None
+		start_file = notation[0]
+		start_rank = notation[1]
+		end_file = notation[2]
+		end_rank = notation[3]
 
-		if piece == 'pawn':
-			if(is_promotion):
-				return
-			elif(is_capture):
-				split = notation.split('x')
-				end_file = split[1][0]
-				end_rank = split[1][1]
-				start_file = split[0][0]
-				start_rank = str(ord(end_rank) - 1)
-			else:
-				start_file = split[0][0]
-				start_rank = split[0][1]
-				end_file = split[1][0]
-				end_rank = split[1][1]
-		else:
-			# TODO: Disambiguate
-			if(is_capture):
-				notation = notation.replace('x', '')
+		# if piece == 'pawn':
+		# 	if(is_promotion):
+		# 		return
+		# 	elif(is_capture):
+		# 		split = notation.split('x')
+		# 		end_file = split[1][0]
+		# 		end_rank = split[1][1]
+		# 		start_file = split[0][0]
+		# 		start_rank = str(ord(end_rank) - 1)
+		# 	else:
+		# 		start_file = notation[0][0]
+		# 		start_rank = notation[0][1]
+		# 		end_file = notation[1][0]
+		# 		end_rank = notation[1][1]
+		# else:
+		# 	# TODO: Disambiguate
+		# 	if(is_capture):
+		# 		notation = notation.replace('x', '')
 
 		start_pos = self.bb_from_algebraic(start_file, start_rank)
 		end_pos = self.bb_from_algebraic(end_file, end_rank)
-		return Move(piece, start_pos, end_pos, is_check, is_checkmate, is_capture, is_promotion)
+		side = self.player if self.on_move else self.opponent
+		piece = self._piece_at(start_pos, side)
+		if not piece:
+			print(self._format(start_pos))
+			print(self._format(end_pos))
+			print(self._format(side['pawn']))
+		return self.create_move(piece, start_pos, end_pos)
 
 	def make_move(self, move):
-		on_move_bb = getattr(self, self.on_move)
+		on_move_bb = self.player if self.on_move else self.opponent
 		piece_bb = on_move_bb[move.piece]
-		on_move_bb[move.piece] = piece_bb & ~move.start_pos & ~move.end_pos
+		# TODO: Promotions, castling
+		on_move_bb[move.piece] = piece_bb & ~move.start_pos | move.end_pos
 
-		if(move.is_capture):
-			off_move_bb = getattr(self, self.off_move)
-			cap_piece_bb = off_move_bb[move.is_capture]
-			off_move_bb[move.is_capture] = cap_piece_bb & ~move.end_pos
+		if(move.capture):
+			off_move_bb = self.opponent if self.on_move else self.player
+			cap_piece_bb = off_move_bb[move.capture]
+			off_move_bb[move.capture] = cap_piece_bb & ~move.end_pos
 
-		if(self.on_move == 'player'):
-			self.on_move = 'opponent'
-			self.off_move = 'player'
-		else:
-			self.on_move = 'player'
-			self.off_move = 'opponent'
+		self.on_move = not self.on_move
 
 	def moves(self, side=None):
 		side = side or self.player
 		moves = []
 
-		for move_list in map(lambda key: getattr(self, '_moves_' + key)(getattr(side, key), moves), side._fields):
+		for move_list in map(lambda key: getattr(self, '_moves_' + key)(side[key], moves), BitboardFields):
 			pass
 
 		return moves
@@ -442,35 +453,36 @@ class Bitboard:
 	def is_checkmate(self, move):
 		return False
 
-	def algebraic(self, moves):
-		return list(map(self.algebraic_move, moves))
+	def algebraic_coords(self, moves):
+		return list(map(self.as_algebraic_coords, moves))
 
-	def algebraic_move(self, move):
-		# TODO: Resolve piece ambiguity
-		sym = BitboardSymbols[BitboardFields.index(move.piece)]
-		buf = ''
+	def as_algebraic_coords(self, move):
+		# buf = ''
 		start_file = self._file(move.start_pos)
+		start_rank = self._rank(move.start_pos)
 		end_rank = self._rank(move.end_pos)
 		end_file = self._file(move.end_pos)
 
-		if(move.is_capture):
-			if(move.piece == 'pawn'):
-				buf = start_file + 'x' + end_file + end_rank
-			else:
-				buf = sym + 'x' + end_file + end_rank
-		else:
-			buf = sym + end_file + end_rank
+		return start_file + start_rank + end_file + end_rank
 
-		# TODO: Underpromotion
-		if(move.is_promotion):
-			buf += '=Q'
+		# if(move.capture):
+		# 	if(move.piece == 'pawn'):
+		# 		buf = start_file + 'x' + end_file + end_rank
+		# 	else:
+		# 		buf = sym + 'x' + end_file + end_rank
+		# else:
+		# 	buf = sym + end_file + end_rank
 
-		if(move.is_checkmate):
-			buf += '#'
-		elif(move.is_check):
-			buf += '+'
+		# # TODO: Underpromotion
+		# if(move.is_promotion):
+		# 	buf += '=Q'
+
+		# if(move.is_checkmate):
+		# 	buf += '#'
+		# elif(move.is_check):
+		# 	buf += '+'
 		
-		return buf
+		# return buf
 
 	def from_fen(self):
 		return None
@@ -489,5 +501,5 @@ if __name__ == "__main__":
 	b = Bitboard('white')
 	print()
 	# print(list(b.moves()))
-	print(list(b.algebraic(b.moves())))
+	print(list(b.algebraic_coords(b.moves())))
 	# list(map(lambda m: print(b._format(m.end_pos)), b.moves()))
