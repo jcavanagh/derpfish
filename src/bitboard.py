@@ -152,134 +152,55 @@ class Bitboard:
 
 	def _create_moves_horizontal(self, piece_name, piece_pos, pos_us, pos_opp, file, moves):
 		# Search left and right of piece
-		for i in range(1, file):
-			new_piece_pos = piece_pos<<i
-			if(pos_us & new_piece_pos):
-				break
-			else:
-				moves.append(self.create_move(piece_name, piece_pos, new_piece_pos))
-				if(pos_opp & new_piece_pos):
-					break
-
-		for i in range(1, 9 - file):
-			new_piece_pos = piece_pos>>i
-			if(pos_us & new_piece_pos):
-				break
-			else:
-				moves.append(self.create_move(piece_name, piece_pos, new_piece_pos))
-				if(pos_opp & new_piece_pos):
-					break
+		self._create_moves_sliding(file, 'left', 1, piece_pos, pos_us, pos_opp, moves)
+		self._create_moves_sliding(9 - file, 'right', 1, piece_pos, pos_us, pos_opp, moves)
 
 	def _create_moves_vertical(self, piece_name, piece_pos, pos_us, pos_opp, rank, moves):
 		# Search up and down of piece
-		for i in range(1, rank):
-			new_piece_pos = piece_pos>>(8 * i)
-			if(pos_us & new_piece_pos):
-				break
-			else:
-				moves.append(self.create_move(piece_name, piece_pos, new_piece_pos))
-				if(pos_opp & new_piece_pos):
-					break
-
-		for i in range(1, 9 - rank):
-			new_piece_pos = piece_pos<<(8 * i)
-			if(pos_us & new_piece_pos):
-				break
-			else:
-				moves.append(self.create_move(piece_name, piece_pos, new_piece_pos))
-				if(pos_opp & new_piece_pos):
-					break
+		self._create_moves_sliding(rank, 'right', 8, piece_pos, pos_us, pos_opp, moves)
+		self._create_moves_sliding(9 - rank, 'left', 8, piece_pos, pos_us, pos_opp, moves)
 
 	def _create_moves_diagonal_right(self, piece_name, piece_pos, pos_us, pos_opp, file, rank, moves):
 		# Search up-right and down-left of piece
 		dist_up_right = min(8 - rank, 8 - file)
-		for i in range(1, dist_up_right):
-			new_piece_pos = piece_pos<<(7 * i)
-			if(pos_us & new_piece_pos):
-				break
-			else:
-				moves.append(self.create_move(piece_name, piece_pos, new_piece_pos))
-				if(pos_opp & new_piece_pos):
-					break
-
 		dist_down_left = min(rank, file)
-		for i in range(1, dist_down_left):
-			new_piece_pos = piece_pos>>(7 * i)
-			if(pos_us & new_piece_pos):
-				break
-			else:
-				moves.append(self.create_move(piece_name, piece_pos, new_piece_pos))
-				if(pos_opp & new_piece_pos):
-					break
+		self._create_moves_sliding(dist_up_right, 'left', 7, piece_pos, pos_us, pos_opp, moves)
+		self._create_moves_sliding(dist_down_left, 'right', 7, piece_pos, pos_us, pos_opp, moves)
 
 	def _create_moves_diagonal_left(self, piece_name, piece_pos, pos_us, pos_opp, file, rank, moves):
 		# Search up-left and down-right of piece
 		dist_up_left = min(8 - rank, file)
-		for i in range(1, dist_up_left):
-			new_piece_pos = piece_pos<<(9 * i)
-			if(pos_us & new_piece_pos):
-				break
-			else:
-				moves.append(self.create_move(piece_name, piece_pos, new_piece_pos))
-				if(pos_opp & new_piece_pos):
-					break
-
 		dist_down_right = min(rank, 8 - file)
-		for i in range(1, dist_down_right):
-			new_piece_pos = piece_pos>>(9 * i)
-			if(pos_us & new_piece_pos):
+		self._create_moves_sliding(dist_up_left, 'left', 9, piece_pos, pos_us, pos_opp, moves)
+		self._create_moves_sliding(dist_down_right, 'right', 9, piece_pos, pos_us, pos_opp, moves)
+
+	def _create_moves_sliding(self, iterations, shift_direction, shift_amount, initial_pos, pos_us, pos_opp, moves):
+		for i in range(1, iterations):
+			if shift_direction == 'left':
+				final_pos = initial_pos<<(shift_amount * i)
+			else:
+				final_pos = initial_pos>>(shift_amount * i)
+
+			if(pos_us & final_pos):
 				break
 			else:
-				moves.append(self.create_move(piece_name, piece_pos, new_piece_pos))
-				if(pos_opp & new_piece_pos):
-					break
+				if(pos_opp & final_pos):
+					moves.append(self.create_move(piece_name, initial_pos, final_pos, True))
+				else:
+					moves.append(self.create_move(piece_name, initial_pos, final_pos))
 
 	def create_move_from_algebraic_coords(self, notation):
 		# TODO: O-O, O-O-O
-		# try:
-		# 	sym_index = BitboardSymbols.index(notation[0])
-		# except ValueError:
-		# 	# Pawn
-		# 	sym_index = 0
-
-		# piece = BitboardFields[sym_index]
-		# is_capture = notation.find('x') != -1
-		# is_promotion = notation.find('=') != -1
-		# is_check = notation.find('+') != -1
-		# is_checkmate = notation.find('#') != -1
-
 		start_file = notation[0]
 		start_rank = notation[1]
 		end_file = notation[2]
 		end_rank = notation[3]
 
-		# if piece == 'pawn':
-		# 	if(is_promotion):
-		# 		return
-		# 	elif(is_capture):
-		# 		split = notation.split('x')
-		# 		end_file = split[1][0]
-		# 		end_rank = split[1][1]
-		# 		start_file = split[0][0]
-		# 		start_rank = str(ord(end_rank) - 1)
-		# 	else:
-		# 		start_file = notation[0][0]
-		# 		start_rank = notation[0][1]
-		# 		end_file = notation[1][0]
-		# 		end_rank = notation[1][1]
-		# else:
-		# 	# TODO: Disambiguate
-		# 	if(is_capture):
-		# 		notation = notation.replace('x', '')
-
 		start_pos = self.bb_from_algebraic(start_file, start_rank)
 		end_pos = self.bb_from_algebraic(end_file, end_rank)
 		side = self.player if self.on_move else self.opponent
 		piece = self._piece_at(start_pos, side)
-		if not piece:
-			print(self._format(start_pos))
-			print(self._format(end_pos))
-			print(self._format(side['pawn']))
+
 		return self.create_move(piece, start_pos, end_pos)
 
 	def make_move(self, move):
@@ -318,24 +239,28 @@ class Bitboard:
 	def _moves_pawn(self, pawns, moves):
 		prev_pos = self.history[len(self.history) - 1] if len(self.history) > 0 else None
 
-		moved_pawns = pawns & ~(self._shift_abs(255, 8))
-		unmoved_pawns = pawns & (self._shift_abs(255, 8))
+		rank_mask_rel = self._shift_abs(255, 8)
+		moved_pawns = pawns & ~rank_mask_rel
+		unmoved_pawns = pawns & rank_mask_rel
+
+		inv_pos_us = ~self._pos_bb()
+		pos_opp = self._pos_bb(self.opponent)
 
 		def _pawn_move_1(pawn):
-			return self._shift(pawn, 8) & ~self._pos_bb()
+			return self._shift(pawn, 8) & inv_pos_us
 
 		def _pawn_move_2(pawn):
 			move_1 = _pawn_move_1(pawn)
-			return self._shift(move_1, 8) & ~self._pos_bb() if move_1 else 0
+			return self._shift(move_1, 8) & inv_pos_us if move_1 else 0
 
 		def _pawn_capture_left(pawn):
-			return self._shift(pawns & MASK_FILE_A, 9) & self._pos_bb(self.opponent)
+			return self._shift(pawns & ~MASK_FILE_A, 9) & pos_opp
 
 		def _pawn_capture_right(pawn):
-			return self._shift(pawns & MASK_FILE_H, 7) & self._pos_bb(self.opponent)
+			return self._shift(pawns & ~MASK_FILE_H, 7) & pos_opp
 
 		def _pawn_promote(pawn):
-			return _pawn_move_1(pawn) & MASK_RANK_8
+			return _pawn_move_1(pawn) & rank_mask_rel
 
 		def _pawn_en_passant(pawn):
 			# TODO: En passant
@@ -393,31 +318,33 @@ class Bitboard:
 		def _king_move_left_down(king):
 			on_first_file = king & MASK_FILE_A
 			on_first_rank = king & MASK_RANK_1
-			return (king>>7) & ~self._pos_bb(self.player) if not (on_first_file or on_first_rank) else 0
+			return (king>>7) & inv_pos_us if not (on_first_file or on_first_rank) else 0
 		def _king_move_left(king):
 			on_first_file = king & MASK_FILE_A
-			return (king<<1) & ~self._pos_bb(self.player) if not on_first_file else 0
+			return (king<<1) & inv_pos_us if not on_first_file else 0
 		def _king_move_left_up(king):
 			on_first_file = king & MASK_FILE_A
 			on_last_rank = king & MASK_RANK_8
-			return (king<<7) & ~self._pos_bb(self.player) if not (on_first_file or on_last_rank) else 0
+			return (king<<7) & inv_pos_us if not (on_first_file or on_last_rank) else 0
 		def _king_move_up(king):
 			on_last_rank = king & MASK_RANK_8
-			return (king<<8) & ~self._pos_bb(self.player) if not on_last_rank else 0
+			return (king<<8) & inv_pos_us if not on_last_rank else 0
 		def _king_move_right_up(king):
 			on_last_file = king & MASK_FILE_H
 			on_last_rank = king & MASK_RANK_8
-			return (king<<9) & ~self._pos_bb(self.player) if not (on_last_file or on_last_rank) else 0
+			return (king<<9) & inv_pos_us if not (on_last_file or on_last_rank) else 0
 		def _king_move_right(king):
 			on_last_file = king & MASK_FILE_H
-			return (king>>1) & ~self._pos_bb(self.player) if not on_last_file else 0
+			return (king>>1) & inv_pos_us if not on_last_file else 0
 		def _king_move_right_down(king):
 			on_last_file = king & MASK_FILE_H
 			on_first_rank = king & MASK_RANK_1
-			return (king>>9) & ~self._pos_bb(self.player) if not (on_last_file or on_first_rank) else 0
+			return (king>>9) & inv_pos_us if not (on_last_file or on_first_rank) else 0
 		def _king_move_down(king):
 			on_first_rank = king & MASK_RANK_1
-			return (king>>8) & ~self._pos_bb(self.player) if not on_first_rank else 0
+			return (king>>8) & inv_pos_us if not on_first_rank else 0
+
+		inv_pos_us = ~self._pos_bb(self.player)
 
 		for king in self._move_bb_gen(kings):
 			self._move_append_if('king', king, _king_move_left_down(king), moves)
@@ -465,25 +392,6 @@ class Bitboard:
 
 		return start_file + start_rank + end_file + end_rank
 
-		# if(move.capture):
-		# 	if(move.piece == 'pawn'):
-		# 		buf = start_file + 'x' + end_file + end_rank
-		# 	else:
-		# 		buf = sym + 'x' + end_file + end_rank
-		# else:
-		# 	buf = sym + end_file + end_rank
-
-		# # TODO: Underpromotion
-		# if(move.is_promotion):
-		# 	buf += '=Q'
-
-		# if(move.is_checkmate):
-		# 	buf += '#'
-		# elif(move.is_check):
-		# 	buf += '+'
-		
-		# return buf
-
 	def from_fen(self):
 		return None
 
@@ -491,15 +399,15 @@ class Bitboard:
 		return None
 
 if __name__ == "__main__":
+	iterations = 10000
 	# import timeit
-	# print(timeit.timeit(stmt="b.moves()", setup="from __main__ import Bitboard;b=Bitboard('white')", number=1))
+	# print(timeit.timeit(stmt="b.moves()", setup="from __main__ import Bitboard;b=Bitboard('white')", number=iterations) / iterations)
 
-	# import cProfile
-	# b = Bitboard('white')
-	# cProfile.run('b.moves()')
-
+	import cProfile
 	b = Bitboard('white')
-	print()
-	# print(list(b.moves()))
-	print(list(b.algebraic_coords(b.moves())))
+	cProfile.run('for t in range(0, iterations): b.moves()', sort='tottime')
+
+	# b = Bitboard('white')
+	# print()
+	# print(list(b.algebraic_coords(b.moves())))
 	# list(map(lambda m: print(b._format(m.end_pos)), b.moves()))
