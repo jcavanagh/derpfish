@@ -6,12 +6,14 @@ XBoardEvent = namedtuple('XBoardEvent', ['command', 'args'])
 class XBoard:
 	def __init__(self):
 		self.features = {
+			'myname': 'Derpfish',
 			'ping': '1',
-			'usermove': '1'
+			'usermove': '1',
+			'variants': '"normal"'
 		}
 		self.log = []
 		self.subs = {
-			'feature': [self._on_feature],
+			'protover': [self._on_protover],
 			'ping': [self._on_ping]
 		}
 
@@ -33,7 +35,7 @@ class XBoard:
 				print('handling:', event)
 				handler(event)
 
-	def _on_feature(self, event):
+	def _on_protover(self, event):
 		for arg in event.args:
 			split_arg = arg.split('=')
 			feature_name = split_arg[0]

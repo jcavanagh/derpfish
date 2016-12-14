@@ -57,6 +57,7 @@ class Bitboard:
 			king = mpz(8<<56),
 			queen = mpz(16<<56)
 		)
+
 		self.player = self.white if color == 'white' else self.black
 		self.opponent = self.black if color == 'white' else self.white
 		self.on_move = 'player' if color == 'white' else 'opponent'
@@ -105,28 +106,80 @@ class Bitboard:
 		file_index = 7 - BitboardFiles.index(file)
 		return mpz(1)<<((8 * rank) + file_index)
 
-	def _rank(self, pos):
+	def _rank_index(self, pos):
 		rank = 0
 		for i in range(8):
 			if(pos & (MASK_RANK_1<<(8 * i))):
 				rank = i + 1
 				break
 
-		return str(rank)
+		return rank
 
-	def _file(self, pos):
+	def _rank(self, pos):
+		return str(self._rank_index(pos));
+
+	def _file_index(self, pos):
 		file = 0
 		for i in range(8):
 			if(pos & (MASK_FILE_A>>i)):
-				file = i
+				file = i + 1
 				break
 
-		return BitboardFiles[file]
+		return file
 
-	def _create_move(self, piece, initial, final, capture=False, promotion=False):
+	def _file(self, pos):
+		return BitboardFiles[self._file_index(pos) - 1]
+
+	def _file_mask(self, file):
+		return globals()['MASK_FILE_' + file.upper()]
+
+	def _rank_mask(self, rank):
+		return globals()['MASK_RANK_' + str(rank)]
+
+	def create_move(self, piece_name, initial, final, capture=False, promotion=False):
 		check = self.is_check(final)
 		checkmate = self.is_checkmate(final) if check else False
-		return Move(piece, initial, final, check, checkmate, capture, promotion)
+		return Move(piece_name, initial, final, check, checkmate, capture, promotion)
+
+	def _create_moves_horizontal(self, piece_name, piece_pos, pos_us, pos_opp, file, moves):
+		# Search left and right of piece
+		for i in range(1, file):
+			new_piece_pos = piece_pos<<i
+			if(pos_us & new_piece_pos):
+				break
+			else:
+				moves.append(self.create_move(piece_name, piece_pos, new_piece_pos))
+				if(pos_opp & new_piece_pos):
+					break
+
+		for i in range(1, 9 - file):
+			new_piece_pos = piece_pos>>i
+			if(pos_us & new_piece_pos):
+				break
+			else:
+				moves.append(self.create_move(piece_name, piece_pos, new_piece_pos))
+				if(pos_opp & new_piece_pos):
+					break
+
+	def _create_moves_vertical(self, piece_name, piece_pos, pos_us, pos_opp, rank, moves):
+		# Search up and down of piece
+		for i in range(1, rank):
+			new_piece_pos = piece_pos>>(8 * i)
+			if(pos_us & new_piece_pos):
+				break
+			else:
+				moves.append(self.create_move(piece_name, piece_pos, new_piece_pos))
+				if(pos_opp & new_piece_pos):
+					break
+
+		for i in range(1, 9 - rank):
+			new_piece_pos = piece_pos<<(8 * i)
+			if(pos_us & new_piece_pos):
+				break
+			else:
+				moves.append(self.create_move(piece_name, piece_pos, new_piece_pos))
+				if(pos_opp & new_piece_pos):
+					break
 
 	def create_move_from_algebraic(self, notation):
 		# TODO: O-O, O-O-O
@@ -191,23 +244,34 @@ class Bitboard:
 		side = side or self.player
 		moves = []
 
-		for move_list in map(lambda key: getattr(self, '_moves_' + key)(getattr(side, key)), side._fields):
-			if(move_list): moves += move_list
+		for move_list in map(lambda key: getattr(self, '_moves_' + key)(getattr(side, key), moves), side._fields):
+			pass
 
 		return moves
 
-	def _moves_pawn(self, pawns):
+	def _move_bb_gen(self, pieces_bb):
+		index = -1
+		while(1):
+			index = bit_scan1(pieces_bb, index + 1)
+			if index is None: raise StopIteration
+			yield mpz(1)<<index
+
+	def _move_append_if(self, piece_name, initial_pos, final_pos, moves):
+		if(final_pos):
+			moves.append(self.create_move(piece_name, initial_pos, final_pos))
+
+	def _moves_pawn(self, pawns, moves):
 		prev_pos = self.history[len(self.history) - 1] if len(self.history) > 0 else None
 
 		moved_pawns = pawns & ~(self._shift_abs(255, 8))
 		unmoved_pawns = pawns & (self._shift_abs(255, 8))
 
 		def _pawn_move_1(pawn):
-			return self._shift(pawn, 8) & ~(self._pos_bb())
+			return self._shift(pawn, 8) & ~self._pos_bb()
 
 		def _pawn_move_2(pawn):
 			move_1 = _pawn_move_1(pawn)
-			return self._shift(move_1, 8) & ~(self._pos_bb()) if move_1 else 0
+			return self._shift(move_1, 8) & ~self._pos_bb() if move_1 else 0
 
 		def _pawn_capture_left(pawn):
 			return self._shift(pawns & MASK_FILE_A, 9) & self._pos_bb(self.opponent)
@@ -222,56 +286,100 @@ class Bitboard:
 			# TODO: En passant
 			return 0
 
-		moves = []
-		index = -1
-		while(1):
-			index = bit_scan1(pawns, index + 1)
-			if index is None: break
-
-			pawn = mpz(1)<<index
-			
-			move_1 = _pawn_move_1(pawn)
-			if move_1: moves.append(self._create_move('pawn', pawn, move_1))
-
-			capture_left = _pawn_capture_left(pawn)
-			if capture_left: moves.append(self._create_move('pawn', pawn, capture_left))
-
-			capture_right = _pawn_capture_right(pawn)
-			if capture_right: moves.append(self._create_move('pawn', pawn, capture_right))
+		for pawn in self._move_bb_gen(pawns):
+			self._move_append_if('pawn', pawn, _pawn_move_1(pawn), moves)
+			self._move_append_if('pawn', pawn, _pawn_capture_left(pawn), moves)
+			self._move_append_if('pawn', pawn, _pawn_capture_right(pawn), moves)
 		
-		index = -1
-		while(1):
-			index = bit_scan1(unmoved_pawns, index + 1)
-			if index is None: break
+		for pawn in self._move_bb_gen(unmoved_pawns):
+			self._move_append_if('pawn', pawn, _pawn_move_2(pawn), moves)
 
-			pawn = mpz(1)<<index
+	def _moves_knight(self, knights, moves):
+		def _knight_move_left_down(knight):
+			return None
+		def _knight_move_left_up(knight):
+			return None
+		def _knight_move_up_left(knight):
+			return None
+		def _knight_move_up_right(knight):
+			return None
+		def _knight_move_right_up(knight):
+			return None
+		def _knight_move_right_down(knight):
+			return None
+		def _knight_move_down_right(knight):
+			return None
+		def _knight_move_down_left(knight):
+			return None
 
-			move_2 = _pawn_move_2(pawn)
-			if move_2: moves.append(self._create_move('pawn', pawn, move_2))
+	def _moves_bishop(self, bishops, moves):
+		pass
 
-		return moves
+	def _moves_rook(self, rooks, moves):
+		def _rook_moves_vertical(rook, pos_us, pos_opp, rank, moves):			
+			self._create_moves_vertical('rook', rook, pos_us, pos_opp, rank, moves)
 
-	def _moves_knight(self, knights):
-		return None
+		def _rook_moves_horizontal(rook, pos_us, pos_opp, file, moves):
+			self._create_moves_horizontal('rook', rook, pos_us, pos_opp, file, moves)
 
-	def _moves_bishop(self, bishops):
-		return None
+		pos_us = self._pos_bb(self.player)
+		pos_opp = self._pos_bb(self.opponent)
 
-	def _moves_rook(self, rooks):
-		return None
+		for rook in self._move_bb_gen(rooks):
+			rank = self._rank_index(rook)
+			file = self._file_index(rook)
 
-	def _moves_king(self, kings):
-		return None
+			_rook_moves_vertical(rook, pos_us, pos_opp, rank, moves)
+			_rook_moves_horizontal(rook, pos_us, pos_opp, file, moves)
 
-	def _moves_queen(self, queens):
-		return None
+	def _moves_king(self, kings, moves):
+		def _king_move_left_down(king):
+			on_first_file = king & MASK_FILE_A
+			on_first_rank = king & MASK_RANK_1
+			return (king>>7) & ~self._pos_bb(self.player) if not (on_first_file or on_first_rank) else 0
+		def _king_move_left(king):
+			on_first_file = king & MASK_FILE_A
+			return (king<<1) & ~self._pos_bb(self.player) if not on_first_file else 0
+		def _king_move_left_up(king):
+			on_first_file = king & MASK_FILE_A
+			on_last_rank = king & MASK_RANK_8
+			return (king<<7) & ~self._pos_bb(self.player) if not (on_first_file or on_last_rank) else 0
+		def _king_move_up(king):
+			on_last_rank = king & MASK_RANK_8
+			return (king<<8) & ~self._pos_bb(self.player) if not on_last_rank else 0
+		def _king_move_right_up(king):
+			on_last_file = king & MASK_FILE_H
+			on_last_rank = king & MASK_RANK_8
+			return (king<<9) & ~self._pos_bb(self.player) if not (on_last_file or on_last_rank) else 0
+		def _king_move_right(king):
+			on_last_file = king & MASK_FILE_H
+			return (king>>1) & ~self._pos_bb(self.player) if not on_last_file else 0
+		def _king_move_right_down(king):
+			on_last_file = king & MASK_FILE_H
+			on_first_rank = king & MASK_RANK_1
+			return (king>>9) & ~self._pos_bb(self.player) if not (on_last_file or on_first_rank) else 0
+		def _king_move_down(king):
+			on_first_rank = king & MASK_RANK_1
+			return (king>>8) & ~self._pos_bb(self.player) if not on_first_rank else 0
+
+		for king in self._move_bb_gen(kings):
+			self._move_append_if('king', king, _king_move_left_down(king), moves)
+			self._move_append_if('king', king, _king_move_left(king), moves)
+			self._move_append_if('king', king, _king_move_left_up(king), moves)
+			self._move_append_if('king', king, _king_move_up(king), moves)
+			self._move_append_if('king', king, _king_move_right_up(king), moves)
+			self._move_append_if('king', king, _king_move_right(king), moves)
+			self._move_append_if('king', king, _king_move_right_down(king), moves)
+			self._move_append_if('king', king, _king_move_down(king), moves)
+
+	def _moves_queen(self, queens, moves):
+		for queen in self._move_bb_gen(queens):
+			pass
 
 	def is_capture(self, move):
 		for piece in BitboardFields:
 			if(move.end_pos & self.opponent[piece]):
 				return piece
-
-		return None
 
 	def is_check(self, move):
 		return False
@@ -317,7 +425,7 @@ class Bitboard:
 
 if __name__ == "__main__":
 	# import timeit
-	# print(timeit.timeit(stmt="b.moves()", setup="from __main__ import Bitboard;b=Bitboard('white')", number=100000))
+	# print(timeit.timeit(stmt="b.moves()", setup="from __main__ import Bitboard;b=Bitboard('white')", number=1))
 
 	# import cProfile
 	# b = Bitboard('white')
@@ -325,6 +433,6 @@ if __name__ == "__main__":
 
 	b = Bitboard('white')
 	print()
-	print(list(b.moves()))
+	# print(list(b.moves()))
 	print(list(b.algebraic(b.moves())))
 	# list(map(lambda m: print(b._format(m.end_pos)), b.moves()))

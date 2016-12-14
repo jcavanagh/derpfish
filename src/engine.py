@@ -36,4 +36,8 @@ class Engine:
 		print('thinking')
 		# Random legal move in the position
 		moves = self.position.moves()
-		return random.choice(moves)
+
+		if(len(moves)):
+			return random.choice(moves)
+		else:
+			self.output.send('resign')

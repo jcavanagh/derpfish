@@ -9,3 +9,6 @@ pip-selfcheck.json
 .Python
 __pycache__
 *.pyc
+
+# Other
+.DS_Store
