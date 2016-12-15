@@ -180,10 +180,9 @@ class Bitboard:
 
 		return [i for i in attacks if i.end_pos & pos_opp]
 
-	def create_move(self, piece_name, initial, final, is_capture=False, promotion=False):
+	def create_move(self, piece_name, initial, final, capture=None, promotion=None):
 		side = self.state['player'] if self.state['on_move'] else self.state['opponent']
 		check = self.is_check(final)
-		capture = self._piece_at(final, side) if is_capture else None
 		if self.state['future_pos']:
 			attacks = None
 		else:
@@ -225,9 +224,10 @@ class Bitboard:
 				break
 			else:
 				if(pos_opp & final_pos):
-					moves.append(self.create_move(piece_name, initial_pos, final_pos, True))
+					self._move_append_if(piece_name, initial_pos, final_pos, moves)
+					break
 				else:
-					moves.append(self.create_move(piece_name, initial_pos, final_pos))
+					self._move_append_if(piece_name, initial_pos, final_pos, moves)
 
 	def create_move_from_algebraic_coords(self, notation):
 		# TODO: O-O, O-O-O
@@ -239,9 +239,10 @@ class Bitboard:
 		start_pos = self.bb_from_algebraic(start_file, start_rank)
 		end_pos = self.bb_from_algebraic(end_file, end_rank)
 		side = self.state['player'] if self.state['on_move'] else self.state['opponent']
+		other_side = self.state['opponent'] if self.state['on_move'] else self.state['player']
 		piece = self._piece_at(start_pos, side)
 
-		return self.create_move(piece, start_pos, end_pos)
+		return self.create_move(piece, start_pos, end_pos, self._piece_at(end_pos, other_side))
 
 	def make_move(self, move):
 		if not self.state['future_pos']:
@@ -284,7 +285,8 @@ class Bitboard:
 
 	def _move_append_if(self, piece_name, initial_pos, final_pos, moves):
 		if(final_pos):
-			moves.append(self.create_move(piece_name, initial_pos, final_pos))
+			capture = self._piece_at(final_pos, self.state['opponent'])
+			moves.append(self.create_move(piece_name, initial_pos, final_pos, capture))
 
 	def _moves_pawn(self, pawns, moves):
 		prev_pos = self.state['history'][:-2] if len(self.state['history']) > 1 else None
@@ -451,11 +453,6 @@ class Bitboard:
 			self._create_moves_horizontal('queen', queen, pos_us, pos_opp, file, moves)
 			self._create_moves_diagonal_right('queen', queen, pos_us, pos_opp, file, rank, moves)
 			self._create_moves_diagonal_left('queen', queen, pos_us, pos_opp, file, rank, moves)
-
-	def is_capture(self, move):
-		for piece in BitboardFields:
-			if(move.end_pos & self.state['opponent'][piece]):
-				return piece
 
 	def is_check(self, move):
 		return False
