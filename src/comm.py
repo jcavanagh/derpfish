@@ -1,29 +1,41 @@
 from collections import namedtuple
-import sys
+import logging, os, re, sys
 
 XBoardEvent = namedtuple('XBoardEvent', ['command', 'args'])
 
+logger = logging.getLogger('comm')
+
 class XBoard:
 	def __init__(self):
+		self.move_exp = '[a-h]\d[a-h]\d[qnbr]?$|O-O$|O-O-O$'
 		self.features = {
+			'analyze': '0',
 			'myname': '"Derpfish"',
-			'ping': '1',
-			'usermove': '1',
+			# 'ping': '1',
 			'variants': '"normal"'
 		}
+		self.accepted = {}
 		self.log = []
 		self.subs = {
 			'protover': [self._on_protover],
-			'ping': [self._on_ping]
+			'accepted': [self._on_accepted],
+			# 'ping': [self._on_ping]
 		}
 
 	def _parse_line(self, line):
-		parts = line.split()
-		# if len(parts):
-		return XBoardEvent(
-			command=parts[0],
-			args=parts[1:]
-		)
+		move_match = re.match(self.move_exp, line)
+		if move_match:
+			return XBoardEvent(
+				command='move',
+				args=[move_match.group(0)]
+			)
+		else:
+			parts = line.split()
+			if len(parts):
+				return XBoardEvent(
+					command=parts[0],
+					args=parts[1:]
+				)
 
 	def _fire(self, event):
 		try:
@@ -35,9 +47,16 @@ class XBoard:
 			for handler in evtsubs:
 				handler(event)
 
+	def _on_accepted(self, event):
+		if(len(event.args)):
+			feature_name = event.args[0]
+			self.accepted[feature_name] = True
+
 	def _on_protover(self, event):
 		for feature_name in self.features:
 			self.send('feature ' + feature_name + '=' + self.features[feature_name])
+
+		self.send('feature done=1')
 
 	def _on_ping(self, event):
 		if(len(event.args)):
@@ -46,7 +65,8 @@ class XBoard:
 			self.send('pong')
 
 	def send(self, data):
-		sys.stdout.write(data + '\n')
+		logger.debug('>>> ' + data)
+		print(data, end=os.linesep)
 
 	def on(self, event, callback):
 		try:
@@ -61,4 +81,6 @@ class XBoard:
 		for line in sys.stdin:
 			parsed = self._parse_line(line)
 			if(parsed):
+				logger.debug('<<< ' + line)
+				logger.debug(parsed)
 				self._fire(parsed)
