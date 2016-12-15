@@ -1,5 +1,8 @@
 from collections import namedtuple
+from copy import copy, deepcopy
 from gmpy2 import mpz, bit_scan1
+import logging
+import pdb
 
 BitboardFields = ['pawn', 'knight', 'bishop', 'rook', 'king', 'queen']
 BitboardSymbols = ['', 'N', 'B', 'R', 'K', 'Q']
@@ -10,9 +13,9 @@ Move = namedtuple('Move', [
 	'start_pos',
 	'end_pos',
 	'is_check',
-	'is_checkmate',
 	'is_promotion',
 	'capture',
+	'attacks'
 ])
 
 MASK_RANK_1 = mpz(255)
@@ -36,10 +39,9 @@ MASK_FILE_H = MASK_FILE_A>>7
 KNIGHT_MASK = 0
 
 class Bitboard:
-	def __init__(self, color, debug=False):
-		self.debug = debug
-		self.color = color
-		self.white = dict(
+	@staticmethod
+	def start_white():
+		return dict(
 			pawn = mpz(255<<8),
 			knight = mpz(66),
 			bishop = mpz(36),
@@ -48,7 +50,9 @@ class Bitboard:
 			queen = mpz(16)
 		)
 
-		self.black = dict(
+	@staticmethod
+	def start_black():
+		return dict(
 			pawn = mpz(255<<48),
 			knight = mpz(66<<56),
 			bishop = mpz(36<<56),
@@ -57,17 +61,41 @@ class Bitboard:
 			queen = mpz(16<<56)
 		)
 
-		self.player = self.white if color == 'white' else self.black
-		self.opponent = self.black if color == 'white' else self.white
-		self.on_move = color == 'white'
-		self.history = []
+	@staticmethod
+	def defaults(color):
+		return {
+			'color': color,
+			'player': Bitboard.start_white() if color == 'white' else Bitboard.start_black(),
+			'opponent': Bitboard.start_black() if color == 'white' else Bitboard.start_white(),
+			'on_move': color == 'white',
+			'history': [],
+			'future_pos': False
+		}
+
+	def __init__(self, color, state=None):
+		self.state = state if state else Bitboard.defaults(color)
 
 	def __repr__(self):
 		return self._format(self._pos_bb())
 
+	def __copy__(self):
+		copiable_state = {
+			'color': self.state['color'],
+			'player': copy(self.state['player']),
+			'opponent': copy(self.state['opponent']),
+			'on_move': self.state['on_move'],
+			'history': [],
+			'future_pos': True
+		}
+
+		return Bitboard(self.state['color'], copiable_state)
+
+	def _clone(self):
+		return copy(self)
+
 	def _pos_bb(self, board=None):
 		if board is None:
-			return (self._pos_bb(self.player) ^ self._pos_bb(self.opponent))
+			return (self._pos_bb(self.state['player']) ^ self._pos_bb(self.state['opponent']))
 		else:
 			all = mpz(0)
 			for item in board:
@@ -86,17 +114,17 @@ class Bitboard:
 
 	# Shifts an absolute mask relative to a bitboard
 	def _shift_abs(self, num, shift):
-		return num<<shift if self.color == 'white' else (num<<(64 - shift))>>shift
+		return num<<shift if self.state['color'] == 'white' else (num<<(64 - shift))>>shift
 
 	# Shifts a position relative to a bitboard
 	def _shift(self, num, shift):
-		return num<<shift if self.color == 'white' else num>>shift
+		return num<<shift if self.state['color'] == 'white' else num>>shift
 
 	def hash(self):
 		hash = 0
 		for index in range(len(BitboardFields)):
 			key = BitboardFields[index]
-			hash += (getattr(self.player, key) | getattr(self.opponent, key)) * (index + 1)
+			hash += (getattr(self.state['player'], key) | getattr(self.state['opponent'], key)) * (index + 1)
 
 		return hash.digits(10)
 
@@ -137,12 +165,30 @@ class Bitboard:
 
 		return found
 
+	def _next_pos_attacks(self, move):
+		evil_twin = self._clone()
+		evil_twin.make_move(move)
+
+		pos_opp = evil_twin._pos_bb(evil_twin.state['opponent'])
+		piece = move.piece
+		attacks = []
+		if(piece == 'pawn'):
+			# TODO: en passant counts as "attacked"
+			evil_twin._captures_pawn(move.end_pos, evil_twin._pos_bb(evil_twin.state['opponent']), attacks)
+		else:
+			getattr(evil_twin, '_moves_' + piece)(move.end_pos, attacks)
+
+		return [i for i in attacks if i.end_pos & pos_opp]
+
 	def create_move(self, piece_name, initial, final, is_capture=False, promotion=False):
-		side = self.player if self.on_move else self.opponent
+		side = self.state['player'] if self.state['on_move'] else self.state['opponent']
 		check = self.is_check(final)
-		checkmate = self.is_checkmate(final) if check else False
 		capture = self._piece_at(final, side) if is_capture else None
-		return Move(piece_name, initial, final, check, checkmate, promotion, capture)
+		if self.state['future_pos']:
+			attacks = None
+		else:
+			attacks = self._next_pos_attacks(Move(piece_name, initial, final, check, promotion, capture, None))
+		return Move(piece_name, initial, final, check, promotion, capture, attacks)
 
 	def _create_moves_horizontal(self, piece_name, piece_pos, pos_us, pos_opp, file, moves):
 		# Search left and right of piece
@@ -192,26 +238,36 @@ class Bitboard:
 
 		start_pos = self.bb_from_algebraic(start_file, start_rank)
 		end_pos = self.bb_from_algebraic(end_file, end_rank)
-		side = self.player if self.on_move else self.opponent
+		side = self.state['player'] if self.state['on_move'] else self.state['opponent']
 		piece = self._piece_at(start_pos, side)
 
 		return self.create_move(piece, start_pos, end_pos)
 
 	def make_move(self, move):
-		on_move_bb = self.player if self.on_move else self.opponent
+		if not self.state['future_pos']:
+			self.state['history'].append(self._clone())
+
+		on_move_bb = self.state['player'] if self.state['on_move'] else self.state['opponent']
 		piece_bb = on_move_bb[move.piece]
+
+		if not (piece_bb & move.start_pos):
+			logging.error('Impossible move:' + self.as_algebraic_coords(move))
+			logging.error(move)
+			return
+
 		# TODO: Promotions, castling
 		on_move_bb[move.piece] = piece_bb & ~move.start_pos | move.end_pos
 
 		if(move.capture):
-			off_move_bb = self.opponent if self.on_move else self.player
+			off_move_bb = self.state['opponent'] if self.state['on_move'] else self.state['player']
 			cap_piece_bb = off_move_bb[move.capture]
 			off_move_bb[move.capture] = cap_piece_bb & ~move.end_pos
 
-		self.on_move = not self.on_move
+		if not self.state['future_pos']:
+			self.state['on_move'] = not self.state['on_move']
 
 	def moves(self, side=None):
-		side = side or self.player
+		side = side or self.state['player']
 		moves = []
 
 		for move_list in map(lambda key: getattr(self, '_moves_' + key)(side[key], moves), BitboardFields):
@@ -231,14 +287,14 @@ class Bitboard:
 			moves.append(self.create_move(piece_name, initial_pos, final_pos))
 
 	def _moves_pawn(self, pawns, moves):
-		prev_pos = self.history[len(self.history) - 1] if len(self.history) > 0 else None
+		prev_pos = self.state['history'][:-2] if len(self.state['history']) > 1 else None
 
 		rank_mask_rel = self._shift_abs(255, 8)
 		moved_pawns = pawns & ~rank_mask_rel
 		unmoved_pawns = pawns & rank_mask_rel
 
 		inv_pos_us = ~self._pos_bb()
-		pos_opp = self._pos_bb(self.opponent)
+		pos_opp = self._pos_bb(self.state['opponent'])
 
 		def _pawn_move_1(pawn):
 			return self._shift(pawn, 8) & inv_pos_us
@@ -247,26 +303,31 @@ class Bitboard:
 			move_1 = _pawn_move_1(pawn)
 			return self._shift(move_1, 8) & inv_pos_us if move_1 else 0
 
-		def _pawn_capture_left(pawn):
-			return self._shift(pawns & ~MASK_FILE_A, 9) & pos_opp
-
-		def _pawn_capture_right(pawn):
-			return self._shift(pawns & ~MASK_FILE_H, 7) & pos_opp
-
 		def _pawn_promote(pawn):
 			return _pawn_move_1(pawn) & rank_mask_rel
 
-		def _pawn_en_passant(pawn):
-			# TODO: En passant
-			return 0
-
 		for pawn in self._move_bb_gen(pawns):
 			self._move_append_if('pawn', pawn, _pawn_move_1(pawn), moves)
-			self._move_append_if('pawn', pawn, _pawn_capture_left(pawn), moves)
-			self._move_append_if('pawn', pawn, _pawn_capture_right(pawn), moves)
+			self._captures_pawn(pawn, pos_opp, moves)
 		
 		for pawn in self._move_bb_gen(unmoved_pawns):
 			self._move_append_if('pawn', pawn, _pawn_move_2(pawn), moves)
+
+	def _captures_pawn(self, pawn, pos_opp, moves):
+		def _pawn_capture_left(pawn):
+			return self._shift(pawn & ~MASK_FILE_A, 9) & pos_opp
+
+		def _pawn_capture_right(pawn):
+			return self._shift(pawn & ~MASK_FILE_H, 7) & pos_opp
+
+		def _pawn_en_passant(pawn):
+			# TODO: En passant
+			pass
+
+		# TODO: Promotion can generate an attack
+
+		self._move_append_if('pawn', pawn, _pawn_capture_left(pawn), moves)
+		self._move_append_if('pawn', pawn, _pawn_capture_right(pawn), moves)
 
 	def _moves_knight(self, knights, moves):
 		def _knight_move_left_down(knight):
@@ -302,7 +363,7 @@ class Bitboard:
 			on_12_rank = knight & (MASK_RANK_1 | MASK_RANK_2)
 			return knight>>15 & inv_pos_us if not (on_first_file or on_12_rank) else 0
 
-		inv_pos_us = ~self._pos_bb(self.player)
+		inv_pos_us = ~self._pos_bb(self.state['player'])
 
 		for knight in self._move_bb_gen(knights):
 			self._move_append_if('knight', knight, _knight_move_left_down(knight), moves)
@@ -315,8 +376,8 @@ class Bitboard:
 			self._move_append_if('knight', knight, _knight_move_down_left(knight), moves)
 
 	def _moves_bishop(self, bishops, moves):
-		pos_us = self._pos_bb(self.player)
-		pos_opp = self._pos_bb(self.opponent)
+		pos_us = self._pos_bb(self.state['player'])
+		pos_opp = self._pos_bb(self.state['opponent'])
 
 		for bishop in self._move_bb_gen(bishops):
 			rank = self._rank_index(bishop)
@@ -326,8 +387,8 @@ class Bitboard:
 			self._create_moves_diagonal_left('bishop', bishop, pos_us, pos_opp, file, rank, moves)
 
 	def _moves_rook(self, rooks, moves):
-		pos_us = self._pos_bb(self.player)
-		pos_opp = self._pos_bb(self.opponent)
+		pos_us = self._pos_bb(self.state['player'])
+		pos_opp = self._pos_bb(self.state['opponent'])
 
 		for rook in self._move_bb_gen(rooks):
 			rank = self._rank_index(rook)
@@ -366,7 +427,7 @@ class Bitboard:
 			on_first_rank = king & MASK_RANK_1
 			return (king>>8) & inv_pos_us if not on_first_rank else 0
 
-		inv_pos_us = ~self._pos_bb(self.player)
+		inv_pos_us = ~self._pos_bb(self.state['player'])
 
 		for king in self._move_bb_gen(kings):
 			self._move_append_if('king', king, _king_move_left_down(king), moves)
@@ -379,8 +440,8 @@ class Bitboard:
 			self._move_append_if('king', king, _king_move_down(king), moves)
 
 	def _moves_queen(self, queens, moves):
-		pos_us = self._pos_bb(self.player)
-		pos_opp = self._pos_bb(self.opponent)
+		pos_us = self._pos_bb(self.state['player'])
+		pos_opp = self._pos_bb(self.state['opponent'])
 
 		for queen in self._move_bb_gen(queens):
 			rank = self._rank_index(queen)
@@ -393,13 +454,10 @@ class Bitboard:
 
 	def is_capture(self, move):
 		for piece in BitboardFields:
-			if(move.end_pos & self.opponent[piece]):
+			if(move.end_pos & self.state['opponent'][piece]):
 				return piece
 
 	def is_check(self, move):
-		return False
-
-	def is_checkmate(self, move):
 		return False
 
 	def algebraic_coords(self, moves):
@@ -422,13 +480,15 @@ class Bitboard:
 
 if __name__ == "__main__":
 	iterations = 10000
-	# import timeit
-	# print(timeit.timeit(stmt="b.moves()", setup="from __main__ import Bitboard;b=Bitboard('white')", number=iterations) / iterations)
+	import timeit
+	print(timeit.timeit(stmt="b.moves()", setup="from __main__ import Bitboard;b=Bitboard('white')", number=iterations) / iterations)
 
 	# import cProfile
 	# b = Bitboard('white')
 	# cProfile.run('for t in range(0, iterations): b.moves()', sort='tottime')
 
-	b = Bitboard('black')
-	print(list(b.algebraic_coords(b.moves())))
+	# b = Bitboard('white')
+	# moves = b.moves()
+	# print(list(moves))
+	# print(list(b.algebraic_coords(moves)))
 	# list(map(lambda m: print(b._format(m.end_pos)), b.moves()))
