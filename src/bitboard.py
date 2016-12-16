@@ -42,6 +42,7 @@ class Bitboard:
 	@staticmethod
 	def start_white():
 		return dict(
+			color = 'white',
 			pawn = mpz(255<<8),
 			knight = mpz(66),
 			bishop = mpz(36),
@@ -53,6 +54,7 @@ class Bitboard:
 	@staticmethod
 	def start_black():
 		return dict(
+			color = 'black',
 			pawn = mpz(255<<48),
 			knight = mpz(66<<56),
 			bishop = mpz(36<<56),
@@ -63,28 +65,49 @@ class Bitboard:
 
 	@staticmethod
 	def defaults(color):
+		start_player = Bitboard.start_white() if color == 'white' else Bitboard.start_black()
+		start_opp = Bitboard.start_black() if color == 'white' else Bitboard.start_white()
+
 		return {
-			'color': color,
-			'player': Bitboard.start_white() if color == 'white' else Bitboard.start_black(),
-			'opponent': Bitboard.start_black() if color == 'white' else Bitboard.start_white(),
-			'on_move': color == 'white',
+			'player': start_player,
+			'opponent': start_opp,
+			'on_move': start_player if color == 'white' else start_opp,
+			'off_move': start_opp if color == 'white' else start_player,
+			'possible_moves': None,
+			# Lists of piece moves that control empty squares or squares occupied by the side in question (defending pieces)
+			'player_controlled_squares': [],
+			'opponent_controlled_squares': [],
 			'history': [],
+			'move_list': [],
 			'future_pos': False
 		}
 
 	def __init__(self, color, state=None):
-		self.state = state if state else Bitboard.defaults(color)
+		if state:
+			self.state = state
+		else:
+			self.state = Bitboard.defaults(color)
+			self.state['possible_moves'] = self.moves()
+			self.state['player_controlled_squaresx']
 
 	def __repr__(self):
-		return self._format(self._pos_bb())
+		return self.format(self._pos_bb())
 
 	def __copy__(self):
+		player = self.state['player']
+		opp = self.state['opponent']
+		player_copy = copy(player)
+		opp_copy = copy(opp)
+		on_move_copy = player == id(player) == id(self.state['on_move']) else opp
+
 		copiable_state = {
 			'color': self.state['color'],
-			'player': copy(self.state['player']),
-			'opponent': copy(self.state['opponent']),
-			'on_move': self.state['on_move'],
-			'history': [],
+			'player': player_copy,
+			'opponent': opp_copy,
+			'on_move': on_move_copy,
+			# Historical structures should not be modified in position copies
+			'history': self.state['history'],
+			'move_list': self.state['move_list'],
 			'future_pos': True
 		}
 
@@ -95,7 +118,7 @@ class Bitboard:
 
 	def _pos_bb(self, board=None):
 		if board is None:
-			return (self._pos_bb(self.state['player']) ^ self._pos_bb(self.state['opponent']))
+			return (self._pos_bb(self.state['player']) | self._pos_bb(self.state['opponent']))
 		else:
 			all = mpz(0)
 			for item in board:
@@ -103,7 +126,7 @@ class Bitboard:
 
 			return all
 
-	def _format(self, board):
+	def format(self, board):
 		digits = board.digits(2).rjust(64, '0')
 		index = 0
 		formatted = ''
@@ -114,11 +137,11 @@ class Bitboard:
 
 	# Shifts an absolute mask relative to a bitboard
 	def _shift_abs(self, num, shift):
-		return num<<shift if self.state['color'] == 'white' else (num<<(64 - shift))>>shift
+		return num<<shift if self.state['on_move']['color'] == 'white' else (num<<(64 - shift))>>shift
 
 	# Shifts a position relative to a bitboard
 	def _shift(self, num, shift):
-		return num<<shift if self.state['color'] == 'white' else num>>shift
+		return num<<shift if self.state['on_move']['color'] == 'white' else num>>shift
 
 	def hash(self):
 		hash = 0
@@ -165,28 +188,28 @@ class Bitboard:
 
 		return found
 
-	def _next_pos_attacks(self, move):
+	def _next_pos_controlled_squares(self, move):
 		evil_twin = self._clone()
 		evil_twin.make_move(move)
+		return evil_twin._pos_attacked_squares(evil_twin.state['on_move'])
 
-		pos_opp = evil_twin._pos_bb(evil_twin.state['opponent'])
-		piece = move.piece
-		attacks = []
+	def _pos_controlled_squares(self, side):
+		pos = self._pos_bb(side)
+		controlled = []
 		if(piece == 'pawn'):
 			# TODO: en passant counts as "attacked"
-			evil_twin._captures_pawn(move.end_pos, evil_twin._pos_bb(evil_twin.state['opponent']), attacks)
+			self._captures_pawn(move.end_pos, self._pos_bb(self.state['opponent']), controlled)
 		else:
-			getattr(evil_twin, '_moves_' + piece)(move.end_pos, attacks)
+			getattr(self, '_moves_' + piece)(move.end_pos, controlled)
 
-		return [i for i in attacks if i.end_pos & pos_opp]
+		return controlled
 
 	def create_move(self, piece_name, initial, final, capture=None, promotion=None):
-		side = self.state['player'] if self.state['on_move'] else self.state['opponent']
 		check = self.is_check(final)
 		if self.state['future_pos']:
 			attacks = None
 		else:
-			attacks = self._next_pos_attacks(Move(piece_name, initial, final, check, promotion, capture, None))
+			attacks = self._next_pos_attacked_squares(Move(piece_name, initial, final, check, promotion, capture, None))
 		return Move(piece_name, initial, final, check, promotion, capture, attacks)
 
 	def _create_moves_horizontal(self, piece_name, piece_pos, pos_us, pos_opp, file, moves):
@@ -238,8 +261,8 @@ class Bitboard:
 
 		start_pos = self.bb_from_algebraic(start_file, start_rank)
 		end_pos = self.bb_from_algebraic(end_file, end_rank)
-		side = self.state['player'] if self.state['on_move'] else self.state['opponent']
-		other_side = self.state['opponent'] if self.state['on_move'] else self.state['player']
+		side = self.state['on_move']
+		other_side = self.state['off_move']
 		piece = self._piece_at(start_pos, side)
 
 		return self.create_move(piece, start_pos, end_pos, self._piece_at(end_pos, other_side))
@@ -247,8 +270,9 @@ class Bitboard:
 	def make_move(self, move):
 		if not self.state['future_pos']:
 			self.state['history'].append(self._clone())
+			self.state['move_list'].append(move)
 
-		on_move_bb = self.state['player'] if self.state['on_move'] else self.state['opponent']
+		on_move_bb = self.state['on_move']
 		piece_bb = on_move_bb[move.piece]
 
 		if not (piece_bb & move.start_pos):
@@ -285,6 +309,17 @@ class Bitboard:
 
 	def _move_append_if(self, piece_name, initial_pos, final_pos, moves):
 		if(final_pos):
+			move_list = self.state['move_list']
+			
+			# Do not consider move if the last was check, and this move does not avoid check
+			# TODO: Can I work backward from pieces capable of interposing and king moves?
+			# TODO: How to handle double check efficiently?  Some kind of attack counting matrix, perhaps
+			if(len(move_list)):
+				last_was_check = move_list[-1].is_check
+				if last_was_check:
+					avoids_check = True
+					for move in self.state['history'][-1]['opponent']
+
 			capture = self._piece_at(final_pos, self.state['opponent'])
 			moves.append(self.create_move(piece_name, initial_pos, final_pos, capture))
 
@@ -455,6 +490,12 @@ class Bitboard:
 			self._create_moves_diagonal_left('queen', queen, pos_us, pos_opp, file, rank, moves)
 
 	def is_check(self, move):
+		# pos_opp = self._pos_bb(self.state['opponent'])
+		opp_king = self.state['opponent']['king']
+		for attack in move.attacks:
+			if attack & opp_king:
+				return True
+
 		return False
 
 	def algebraic_coords(self, moves):
@@ -488,4 +529,4 @@ if __name__ == "__main__":
 	# moves = b.moves()
 	# print(list(moves))
 	# print(list(b.algebraic_coords(moves)))
-	# list(map(lambda m: print(b._format(m.end_pos)), b.moves()))
+	# list(map(lambda m: print(b.format(m.end_pos)), b.moves()))

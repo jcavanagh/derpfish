@@ -12,6 +12,8 @@ class XBoard:
 			'analyze': '0',
 			'myname': '"Derpfish"',
 			# 'ping': '1',
+			'sigint': '0',
+			'sigterm': '0',
 			'variants': '"normal"'
 		}
 		self.accepted = {}
@@ -19,6 +21,7 @@ class XBoard:
 		self.subs = {
 			'protover': [self._on_protover],
 			'accepted': [self._on_accepted],
+			'quit': [self._on_quit]
 			# 'ping': [self._on_ping]
 		}
 
@@ -26,7 +29,7 @@ class XBoard:
 		move_match = re.match(self.move_exp, line)
 		if move_match:
 			return XBoardEvent(
-				command='move',
+				command='user_move',
 				args=[move_match.group(0)]
 			)
 		else:
@@ -64,6 +67,9 @@ class XBoard:
 		else:
 			self.send('pong')
 
+	def _on_quit(self, event):
+		sys.exit(0)
+
 	def send(self, data):
 		logger.debug('>>> ' + data)
 		print(data, end=os.linesep)
@@ -79,8 +85,13 @@ class XBoard:
 
 	def listen(self):
 		for line in sys.stdin:
+			line = line.strip()
 			parsed = self._parse_line(line)
 			if(parsed):
 				logger.debug('<<< ' + line)
 				logger.debug(parsed)
 				self._fire(parsed)
+			else:
+				logger.debug('Failed parse:')
+				logger.debug(line)
+
