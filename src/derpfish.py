@@ -1,5 +1,8 @@
 import argparse, logging, sys, traceback
 
+# Hacks
+sys.setcheckinterval(10000)
+
 # CL args
 parser = argparse.ArgumentParser(description='Derpfish, a derpy chess engine')
 parser.add_argument('-d', '--debug', dest='debug', action='store_true')

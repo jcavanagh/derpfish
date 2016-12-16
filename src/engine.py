@@ -3,6 +3,7 @@ import random
 
 class Engine:
 	def __init__(self):
+		self.history = []
 		self.reset()
 
 	def set_output(self, output):
@@ -23,20 +24,26 @@ class Engine:
 			self.think()
 
 	def move(self, move):
-		self.position.make_move(move)
+		self._execute_move(move)
 		formatted = self.position.as_algebraic_coords(move)
 		self.output.send('move ' + formatted)
 
 	def user_move(self, move_notation):
 		move = self.position.create_move_from_algebraic_coords(move_notation)
-		self.position.make_move(move)
+		self._execute_move(move)
 		self.think()
 
 	def think(self):
 		# Random legal move in the position
-		moves = self.position.moves()
+		self.position.analyze()
+		moves = self.position.state['possible_moves']
 
 		if(len(moves)):
 			self.move(random.choice(moves))
 		else:
 			self.output.send('resign')
+
+	def _execute_move(move):
+		new_position = self.position.make_move(move)
+		self.history.append(self.position)
+		self.position = new_position

@@ -12,6 +12,7 @@ class XBoard:
 			'analyze': '0',
 			'myname': '"Derpfish"',
 			# 'ping': '1',
+			'ponder': '0',
 			'sigint': '0',
 			'sigterm': '0',
 			'variants': '"normal"'
