@@ -1,9 +1,11 @@
 from bitboard import Bitboard, Move
+from copy import deepcopy
 import random
 
 class Engine:
 	def __init__(self):
-		self.history = []
+		self.pos_history = []
+		self.move_history = []
 		self.reset()
 
 	def set_output(self, output):
@@ -44,5 +46,6 @@ class Engine:
 
 	def _execute_move(self, move):
 		self.position.make_move(move)
-		# self.history.append(self.position)
-		self.position.analyze()
+		self.pos_history.append(deepcopy(self.position))
+		self.move_history.append(move)
+		self.position.analyze(self.pos_history, self.move_history)

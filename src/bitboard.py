@@ -273,22 +273,29 @@ class Bitboard:
 		pos_us = self.state['on_move_bb']
 		pos_opp = self.state['off_move_bb']
 
+		x_ray = False
 		for i in range(1, iterations):
 			if shift_direction == 'left':
 				final_pos = initial_pos<<(shift_amount * i)
 			else:
 				final_pos = initial_pos>>(shift_amount * i)
 
-			if(pos_us & final_pos):
-				# TODO: Detect discoveries?
-				break
+			if(x_ray):
+				if(pos_us & final_pos):
+					break
+				
+				self._characterize(piece_name, initial_pos, final_pos, moves, { 'x_ray': True })
 			else:
-				if(pos_opp & final_pos):
-					# TODO: Continue if king follows line, mark single piece directly between as pinned
-					self._characterize(piece_name, initial_pos, final_pos, moves)
+				if(pos_us & final_pos):
+					# TODO: Detect discoveries?
 					break
 				else:
-					self._characterize(piece_name, initial_pos, final_pos, moves)
+					if(pos_opp & final_pos):
+						# TODO: Continue if king follows line, mark single piece directly between as pinned
+						self._characterize(piece_name, initial_pos, final_pos, moves)
+						x_ray = True
+					else:
+						self._characterize(piece_name, initial_pos, final_pos, moves)
 
 	def create_move_from_algebraic_coords(self, notation):
 		# TODO: O-O, O-O-O
@@ -350,9 +357,7 @@ class Bitboard:
 		logging.debug('post-move state:')
 		logging.debug(self)
 
-	def analyze(self, history=[]):
-		self.history = history
-
+	def analyze(self, pos_history=[], move_history=[]):
 		player = self.state['player']
 		player_moves = self._moves(player)
 		self.state['player_controlled'] = self._controlled(player, player_moves)
@@ -366,12 +371,54 @@ class Bitboard:
 		# self.state['opponent_defended'] = self._defended(opponent, opponent_moves)
 
 		if id(player) == id(self.state['on_move']):
-			self.state['possible_moves'] = player_moves
+			on_move_moves = player_moves
+			off_move_moves = opponent_moves
 		else:
-			self.state['possible_moves'] = opponent_moves
+			on_move_moves = opponent_moves
+			off_move_moves = player_moves
+
+		off_move_attacks = mpz(0)
+		for move in off_move_moves['moves']:
+			off_move_attacks |= move.end_pos
+
+		off_move_x_ray = off_move_attacks
+		for move in off_move_moves['x_ray']:
+			off_move_x_ray |= move.end_pos
+
+		# Filter certain classes of illegal moves using controlled squares data
+		def _must_move_out_of_check(move, moves):
+			# TODO: Double check
+			if len(move_history):
+				last_move = move_history[-1]
+				logging.debug('Move History')
+				logging.debug(last_move)
+				x_rays = moves['moves'] + moves['x_ray']
+				if last_move.is_check:
+					logging.debug('Last move was check')
+					# Move away
+					return move.end_pos & ~off_move_x_ray
+
+		def _king_moving_into_check(move, moves):
+			return move.piece == 'king' and (off_move_attacks & move.end_pos)
+
+		def _piece_pinned(move, moves):
+			return False
+
+		def _post_analysis_move_filter(move, moves):
+			return not (
+				_king_moving_into_check(move, moves) or 
+				_piece_pinned(move, moves) or
+				_must_move_out_of_check(move, moves)
+			)
+
+		on_move_moves = [x for x in on_move_moves['moves'] if _post_analysis_move_filter(x, on_move_moves)]
+		self.state['possible_moves'] = on_move_moves
 
 	def _moves(self, side):
-		moves = []
+		moves = {
+			'moves': [],
+			'x_ray': []
+		}
 
 		self._moves_pawn(side['pawn'], moves)
 		self._moves_knight(side['knight'], moves)
@@ -386,7 +433,7 @@ class Bitboard:
 		inv_pos_bb = self.state['inv_pos_bb']
 		controlled_bb = mpz(0)
 		controlled = defaultdict(mpz)
-		for move in moves:
+		for move in moves['moves']:
 			if(move.end_pos & inv_pos_bb):
 				controlled[move.end_pos] += 1
 				controlled_bb |= move.end_pos
@@ -397,7 +444,7 @@ class Bitboard:
 		off_move_bb = self.state['off_move_bb']
 		attacked_bb = mpz(0)
 		attacked = defaultdict(mpz)
-		for move in moves:
+		for move in moves['moves']:
 			if(move.end_pos & off_move_bb):
 				attacked[move.end_pos] += 1
 				attacked_bb |= move.end_pos
@@ -416,10 +463,14 @@ class Bitboard:
 			off_move = self.state['off_move']
 			off_move_bb = self.state['off_move_bb']
 
-			next_moves = []
-			# if not self.state['future_pos']:
-			# 	next_pos = self._clone()
-			# 	getattr(next_pos, '_moves_' + piece_name)(final_pos, next_moves)
+			next_moves = {
+				'moves': [],
+				'x_ray': []
+			}
+
+			if not self.state['future_pos']:
+				next_pos = self._clone()
+				getattr(next_pos, '_moves_' + piece_name)(final_pos, next_moves)
 
 			capture = None
 			check = False
@@ -432,7 +483,7 @@ class Bitboard:
 					logging.error(move)
 
 			# Check
-			for future_move in next_moves:
+			for future_move in next_moves['moves']:
 				if(future_move.end_pos & off_move['king']):
 					check = True
 					break
@@ -442,7 +493,10 @@ class Bitboard:
 
 			move = Move(piece_name, initial_pos, final_pos, check, capture, promotion, next_moves)
 			if moves is not None:
-				moves.append(move)
+				if meta.get('x_ray'):
+					moves['x_ray'].append(move)
+				else:
+					moves['moves'].append(move)
 
 			return move
 
