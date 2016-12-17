@@ -35,7 +35,6 @@ class Engine:
 
 	def think(self):
 		# Random legal move in the position
-		self.position.analyze()
 		moves = self.position.state['possible_moves']
 
 		if(len(moves)):
@@ -43,7 +42,7 @@ class Engine:
 		else:
 			self.output.send('resign')
 
-	def _execute_move(move):
-		new_position = self.position.make_move(move)
-		self.history.append(self.position)
-		self.position = new_position
+	def _execute_move(self, move):
+		self.position.make_move(move)
+		# self.history.append(self.position)
+		self.position.analyze()

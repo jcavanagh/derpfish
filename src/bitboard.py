@@ -5,7 +5,14 @@ import logging
 import pdb
 
 BitboardFields = ['pawn', 'knight', 'bishop', 'rook', 'king', 'queen']
-BitboardSymbols = ['', 'N', 'B', 'R', 'K', 'Q']
+BitboardSymbols = {
+	'pawn': 'P',
+	'knight': 'N',
+	'bishop': 'B',
+	'rook': 'R',
+	'king': 'K',
+	'queen': 'Q'
+}
 BitboardFiles = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
 BitboardFileIndexes = {
 	'a': 1,
@@ -102,9 +109,9 @@ class Bitboard:
 		# Sanity check
 		if pos_bb != (player_bb ^ opponent_bb):
 			logging.error('Player:')
-			logging.error(Bitboard.format(player_bb))
+			logging.error(Bitboard.format_bb('player'))
 			logging.error('Opponent:')
-			logging.error(Bitboard.format(opponent_bb))
+			logging.error(Bitboard.format_bb('opponent'))
 			raise RuntimeException('Invalid position: Player and opponent cannot occupy the same square');
 
 		self.state = {
@@ -142,7 +149,7 @@ class Bitboard:
 		}
 
 	def __repr__(self):
-		return Bitboard.format(Bitboard._pos_bb(self))
+		return self.format()
 
 	def _clone(self):
 		return Bitboard(
@@ -161,15 +168,29 @@ class Bitboard:
 
 		return all
 
-	@staticmethod
-	def format(board):
-		digits = board.digits(2).rjust(64, '0')
-		index = 0
-		formatted = ''
-		while index < 64:
-			formatted += digits[index:index+8]+'\n'
-			index += 8
-		return formatted
+	def format_bb(self, side=None):
+		return self.format(side, binary=True)
+
+	def format(self, side=None, binary=False):
+		squares = ['.' for x in range(64)]
+
+		if side is None:
+			self._format_side(self.state['player'], binary, squares)
+			self._format_side(self.state['opponent'], binary, squares)
+		else:
+			self._format_side(self.state[side], binary, squares)
+
+		return '\n ' + ' '.join(sq + '\n' * (n % 8 == 7) for n, sq in enumerate(reversed(squares)))
+
+	def _format_side(self, side, binary, squares):
+		for piece in BitboardFields:
+			bit_index = -1
+			while(1):
+				bit_index = bit_scan1(side[piece], bit_index + 1)
+				if bit_index is None: break
+
+				symbol = BitboardSymbols[piece] if not binary else '1'
+				squares[bit_index] = symbol if side['color'] == 'white' else symbol.lower()
 
 	# Shifts an absolute mask relative to a bitboard
 	def _shift_abs(self, num, shift):
@@ -188,7 +209,7 @@ class Bitboard:
 		return hash.digits(10)
 
 	def bb_from_algebraic(self, file, rank):
-		file_index = 7 - BitboardFileIndexes[file.lower()]
+		file_index = 8 - BitboardFileIndexes[file.lower()]
 		return mpz(1)<<((8 * (int(rank) - 1)) + file_index)
 
 	def _rank_index(self, pos):
@@ -282,11 +303,17 @@ class Bitboard:
 		other_side = self.state['off_move']
 		piece = self._piece_at(start_pos, side)
 
-		return self.create_move(piece, start_pos, end_pos, self._piece_at(end_pos, other_side))
+		move = self._characterize(piece, start_pos, end_pos)
+		logging.debug(notation + '->' + str(move))
+		return move
 
 	def make_move(self, move, promote_to='queen'):
-		on_move_bb = self.state['on_move']
-		piece_bb = on_move_bb[move.piece]
+		on_move = self.state['on_move']
+		off_move = self.state['off_move']
+		piece_bb = on_move[move.piece]
+
+		logging.debug('pre-move state:')
+		logging.debug(self)
 
 		# Sanity check
 		if not (piece_bb & move.start_pos):
@@ -294,17 +321,34 @@ class Bitboard:
 			logging.error(move)
 			return
 
+		logging.debug('Making move:')
+		logging.debug(move)
+
 		# TODO: Promotions, castling
-		on_move_bb[move.piece] = piece_bb & ~move.start_pos | move.end_pos
+		on_move[move.piece] = piece_bb & ~move.start_pos | move.end_pos
 
 		if(move.capture):
-			off_move_bb = self.state['opponent'] if self.state['on_move'] else self.state['player']
-			cap_piece_bb = off_move_bb[move.capture]
-			off_move_bb[move.capture] = cap_piece_bb & ~move.end_pos
+			logging.debug('Capturing: ' + move.capture)
+			cap_piece_bb = off_move[move.capture]
+			off_move[move.capture] = cap_piece_bb & ~move.end_pos
 
-		tmp = self.state['on_move']
-		self.state['on_move'] = self.state['off_move']
-		self.state['off_move'] = tmp
+		# swap on move state
+		self.state['on_move'] = off_move
+		self.state['off_move'] = on_move
+
+		# update bitboards
+		on_move_bb = self._pos_bb(off_move)
+		off_move_bb = self._pos_bb(on_move)
+		pos_bb = on_move_bb | off_move_bb
+		self.state['pos_bb'] = pos_bb
+		self.state['inv_pos_bb'] = ~pos_bb
+		self.state['on_move_bb'] = on_move_bb
+		self.state['inv_on_move_bb'] = ~on_move_bb
+		self.state['off_move_bb'] = off_move_bb
+		self.state['inv_off_move_bb'] = ~off_move_bb
+
+		logging.debug('post-move state:')
+		logging.debug(self)
 
 	def analyze(self, history=[]):
 		self.history = history
@@ -367,7 +411,7 @@ class Bitboard:
 			if index is None: raise StopIteration
 			yield mpz(1)<<index
 
-	def _characterize(self, piece_name, initial_pos, final_pos, moves, meta={}):
+	def _characterize(self, piece_name, initial_pos, final_pos, moves=None, meta={}):
 		if(final_pos):
 			off_move = self.state['off_move']
 			off_move_bb = self.state['off_move_bb']
@@ -383,6 +427,9 @@ class Bitboard:
 			# Capture
 			if(final_pos & off_move_bb):
 				capture = self._piece_at(final_pos, off_move)
+				if capture is None:
+					logging.error('Failed to find capture piece for move:')
+					logging.error(move)
 
 			# Check
 			for future_move in next_moves:
@@ -394,7 +441,10 @@ class Bitboard:
 			promotion = meta.get('promote')
 
 			move = Move(piece_name, initial_pos, final_pos, check, capture, promotion, next_moves)
-			moves.append(move)
+			if moves is not None:
+				moves.append(move)
+
+			return move
 
 	def _moves_pawn(self, pawns, moves):
 		# prev_pos = self.state['history'][:-2] if len(self.state['history']) > 1 else None
@@ -515,40 +565,42 @@ class Bitboard:
 		def _king_move_left_down(king):
 			on_first_file = king & MASK_FILE_A
 			on_first_rank = king & MASK_RANK_1
-			return king>>7 if not (on_first_file or on_first_rank) else 0
+			return king>>7 & inv_on_move_bb if not (on_first_file or on_first_rank) else 0
 
 		def _king_move_left(king):
 			on_first_file = king & MASK_FILE_A
-			return king<<1 if not on_first_file else 0
+			return king<<1 & inv_on_move_bb if not on_first_file else 0
 
 		def _king_move_left_up(king):
 			on_first_file = king & MASK_FILE_A
 			on_last_rank = king & MASK_RANK_8
-			return king<<7 if not (on_first_file or on_last_rank) else 0
+			return king<<7 & inv_on_move_bb if not (on_first_file or on_last_rank) else 0
 
 		def _king_move_up(king):
 			on_last_rank = king & MASK_RANK_8
-			return king<<8 if not on_last_rank else 0
+			return king<<8 & inv_on_move_bb if not on_last_rank else 0
 
 		def _king_move_right_up(king):
 			on_last_file = king & MASK_FILE_H
 			on_last_rank = king & MASK_RANK_8
-			return king<<9 if not (on_last_file or on_last_rank) else 0
+			return king<<9 & inv_on_move_bb if not (on_last_file or on_last_rank) else 0
 
 		def _king_move_right(king):
 			on_last_file = king & MASK_FILE_H
-			return king>>1 if not on_last_file else 0
+			return king>>1 & inv_on_move_bb if not on_last_file else 0
 
 		def _king_move_right_down(king):
 			on_last_file = king & MASK_FILE_H
 			on_first_rank = king & MASK_RANK_1
-			return king>>9 if not (on_last_file or on_first_rank) else 0
+			return king>>9 & inv_on_move_bb if not (on_last_file or on_first_rank) else 0
 
 		def _king_move_down(king):
 			on_first_rank = king & MASK_RANK_1
-			return king>>8 if not on_first_rank else 0
+			return king>>8 & inv_on_move_bb if not on_first_rank else 0
 
 		characterize = self._characterize
+		inv_on_move_bb = self.state['inv_on_move_bb']
+
 		for king in self._move_bb_gen(kings):
 			characterize('king', king, _king_move_left_down(king), moves)
 			characterize('king', king, _king_move_left(king), moves)
@@ -593,12 +645,16 @@ if __name__ == "__main__":
 	# print(timeit.timeit(stmt="b.analyze()", setup="from __main__ import Bitboard;b=Bitboard('white')", number=iterations) / iterations)
 
 	import cProfile
-	b = Bitboard('white')
-	cProfile.run('for t in range(0, iterations): b.analyze()', sort='tottime')
-
 	# b = Bitboard('white')
+	# cProfile.run('for t in range(0, iterations): b.analyze()', sort='tottime')
+
+	b = Bitboard('white')
+	print(b)
+	print(b.format_bb())
+	print(b.format_bb('player'))
+	print(b.format_bb('opponent'))
 	# b.analyze()
 	# moves = b.state['possible_moves']
 	# print(list(moves))
 	# print(list(b.algebraic_coords(moves)))
-	# list(map(lambda m: print(b.format(m.end_pos)), b.moves()))
+	# list(map(lambda m: print(b.format_bb(m.end_pos)), b.moves()))
