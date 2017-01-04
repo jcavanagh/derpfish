@@ -20,15 +20,15 @@ from comm import XBoard
 from engine import Engine
 
 try:
-	engine_input = XBoard()
+	engine_comms = XBoard()
 	engine = Engine()
-	engine.set_output(engine_input)
+	engine.set_output(engine_comms)
 
-	engine_input.on('new', lambda evt: engine.new())
-	engine_input.on('user_move', lambda evt: engine.user_move(evt.args[0]))
-	engine_input.on('go', lambda evt: engine.go())
+	engine_comms.on('new', lambda evt: engine.new())
+	engine_comms.on('user_move', lambda evt: engine.user_move(evt.args[0]))
+	engine_comms.on('go', lambda evt: engine.go())
 
-	engine_input.listen()
+	engine_comms.listen()
 except:
 	etype, evalue, tb = sys.exc_info()
 	logger.error(''.join(traceback.format_exception(etype, evalue, tb)))

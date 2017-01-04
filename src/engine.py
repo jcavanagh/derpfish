@@ -1,11 +1,13 @@
-from bitboard import Bitboard, Move
-from copy import deepcopy
-import random
+from bitboard import Bitboard
+from constants import *
+from position import Position
+from search import Search
 
 class Engine:
 	def __init__(self):
 		self.pos_history = []
 		self.move_history = []
+		self.search = Search()
 		self.reset()
 
 	def set_output(self, output):
@@ -16,36 +18,30 @@ class Engine:
 		self.first_move_made = False
 
 	def new(self):
-		self.position = Bitboard('black')
+		self.position = Position(BLACK)
 
 	def go(self):
 		if(self.first_move_made):
 			self.think()
 		else:
-			self.position = Bitboard('white')
+			self.position = Position(WHITE)
 			self.think()
 
 	def move(self, move):
 		self._execute_move(move)
-		formatted = self.position.as_algebraic_coords(move)
+		formatted = Bitboard.as_algebraic_coords(move)
 		self.output.send('move ' + formatted)
 
 	def user_move(self, move_notation):
-		move = self.position.create_move_from_algebraic_coords(move_notation)
+		move = Bitboard.create_move_from_algebraic_coords(move_notation)
 		self._execute_move(move)
 		self.think()
 
 	def think(self):
-		# Random legal move in the position
-		moves = self.position.state['possible_moves']
-
-		if(len(moves)):
-			self.move(random.choice(moves))
-		else:
-			self.output.send('resign')
+		move = self.search.think(self.position, 10000)
+		self.output.send(move)
 
 	def _execute_move(self, move):
-		self.position.make_move(move)
-		self.pos_history.append(deepcopy(self.position))
+		self.position = self.position.make_move(move)
+		self.pos_history.append(self.position)
 		self.move_history.append(move)
-		self.position.analyze(self.pos_history, self.move_history)
